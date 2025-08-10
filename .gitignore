@@ -21,3 +21,4 @@ mlruns/
 # DVC
 .dvc/
 cache/
+CI_SETUP_SUMMARY.md
