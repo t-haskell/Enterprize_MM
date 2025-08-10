@@ -1,0 +1,7 @@
+pandas
+requests
+prefect>=2.16
+psycopg[binary]>=3.1
+sqlalchemy>=2.0
+confluent-kafka
+pydantic

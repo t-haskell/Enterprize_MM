@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: serving }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: serving } }
+  template:
+    metadata: { labels: { app: serving } }
+    spec:
+      containers:
+        - name: serving
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          ports: [{ containerPort: 8080 }]
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: "http://mlflow:5000"
+            - name: MODEL_NAME
+              value: "market-magic-model"
+            - name: MODEL_STAGE
+              value: "Production"

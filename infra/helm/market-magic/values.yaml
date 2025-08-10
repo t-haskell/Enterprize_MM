@@ -1,0 +1,6 @@
+image:
+  repository: market-magic/serving
+  tag: latest
+service:
+  type: ClusterIP
+  port: 8080

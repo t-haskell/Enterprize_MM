@@ -1,0 +1,21 @@
+name: CD
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+    branches: [ main ]
+jobs:
+  docker-build:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build images
+        run: |
+          docker build -t market-magic/ingestion ./services/ingestion
+          docker build -t market-magic/modeling ./services/modeling
+          docker build -t market-magic/serving ./services/serving
+          docker build -t market-magic/api ./services/api
+      - name: Package Helm chart
+        run: helm package infra/helm/market-magic

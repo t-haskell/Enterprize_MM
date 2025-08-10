@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+# Node
+node_modules/
+.next/
+# Data & Artifacts
+data/
+artifacts/
+mlruns/
+# IDE
+.vscode/
+.idea/
+# Terraform
+*.tfstate*
+.terraform/
+# Docker
+*.log
+# DVC
+.dvc/
+cache/
