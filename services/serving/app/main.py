@@ -1,12 +1,16 @@
-import os, mlflow, numpy as np
+import os
+import mlflow
+import numpy as np
 from fastapi import FastAPI
 from pydantic import BaseModel
 
 app = FastAPI(title="Market Magic Serving")
 
+
 class PredictRequest(BaseModel):
     symbol: str = "AAPL"
     last5: list[float] | None = None
+
 
 def load_model():
     name = os.getenv("MODEL_NAME", "market-magic-model")
@@ -14,7 +18,9 @@ def load_model():
     uri = f"models:/{name}/{stage}"
     return mlflow.pyfunc.load_model(uri)
 
+
 _model = None
+
 
 @app.on_event("startup")
 def _startup():
@@ -25,10 +31,11 @@ def _startup():
         _model = None
         print("Model load failed:", e)
 
+
 @app.post("/predict")
 def predict(req: PredictRequest):
     if _model is None:
         return {"error": "model not available"}
-    x = np.array(req.last5 or [100,101,102,103,104]).reshape(1,-1)
+    x = np.array(req.last5 or [100, 101, 102, 103, 104]).reshape(1, -1)
     pred = _model.predict(x).item()
     return {"symbol": req.symbol, "prediction": pred}

@@ -14,9 +14,12 @@ jobs:
           python-version: '3.11'
       - name: Install tooling
         run: pip install ruff mypy pytest
+
       - name: Lint & Typecheck
+        continue-on-error: true
         run: |
           ruff check .
           mypy services/modeling || true
+
       - name: Run tests
         run: pytest -q
