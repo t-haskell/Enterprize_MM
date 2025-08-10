@@ -1,7 +1,7 @@
 .PHONY: bootstrap up down seed train predict test fmt lint build release
 
 bootstrap:
-	pip install pre-commit || true
+	pipx install pre-commit || true
 	pre-commit install
 	cp -n .env.example .env || true
 	cp -n services/serving/.env.example services/serving/.env || true
