@@ -91,7 +91,7 @@ async def run_analysis(request: Request) -> ScenarioExecutionResponse:
 
 @router.get("/runs/{run_id}")
 @limiter.limit("60/minute")
-async def get_run(run_id: str) -> Dict[str, Any]:
+async def get_run(request: Request, run_id: str) -> Dict[str, Any]:
     """Return the latest state for a scheduled run."""
 
     return await _get_from_orchestrator(f"/runs/{run_id}")
@@ -99,7 +99,7 @@ async def get_run(run_id: str) -> Dict[str, Any]:
 
 @router.get("/runs/{run_id}/stream")
 @limiter.limit("60/minute")
-async def stream_run(run_id: str) -> StreamingResponse:
+async def stream_run(request: Request, run_id: str) -> StreamingResponse:
     """Proxy Server-Sent Events from the orchestration service."""
 
     url = f"{ORCHESTRATION_URL.rstrip('/')}/runs/{run_id}/stream"
