@@ -1,5 +1,7 @@
 .PHONY: bootstrap up down seed train predict test fmt lint build release orchestrator api
 
+.PHONY: orchestration orchestration-test
+
 bootstrap:
 	pipx install pre-commit || true
 	pre-commit install
@@ -37,7 +39,13 @@ fmt:
 	docker compose exec modeling mypy modeling || true
 
 build:
-	docker compose build
+        docker compose build
 
 release:
-	@echo "Handled by GitHub Actions / Jenkins"
+        @echo "Handled by GitHub Actions / Jenkins"
+
+orchestration:
+        docker compose up orchestrator
+
+orchestration-test:
+        docker compose exec orchestrator pytest -q

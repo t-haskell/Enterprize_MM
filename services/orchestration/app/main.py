@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 
 from .config import get_settings
-from .llm import PromptEngine
+from .llm import PromptEngine, TokenBudgetExceeded
 from .models import (
     PromptRequest,
     ScenarioExecutionRequest,
@@ -41,14 +41,22 @@ async def healthz() -> dict[str, str]:
 @app.post("/suggest", response_model=ScenarioSuggestionResponse, tags=["analysis"])
 async def suggest(request: PromptRequest) -> ScenarioSuggestionResponse:
     response = rank_scenarios(request)
-    response.metadata["llm"] = prompt_engine.complete(request.prompt)
+    try:
+        llm_metadata = prompt_engine.complete(request.prompt)
+    except TokenBudgetExceeded as exc:
+        llm_metadata = {"error": str(exc)}
+    finally:
+        prompt_engine.reset_budget()
+    response.metadata["llm"] = llm_metadata
     response.metadata.setdefault("max_scenarios", settings.max_scenarios)
     return response
 
 
 @app.post("/execute", response_model=ScenarioExecutionResponse, tags=["analysis"])
-async def execute(request: ScenarioExecutionRequest) -> ScenarioExecutionResponse:
-    return schedule_execution(request)
+async def execute(
+    request: ScenarioExecutionRequest, background_tasks: BackgroundTasks
+) -> ScenarioExecutionResponse:
+    return schedule_execution(request, background_tasks)
 
 
 @app.get("/runs/{run_id}", tags=["analysis"])

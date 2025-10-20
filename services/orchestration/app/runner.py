@@ -7,7 +7,11 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, Set
 
+from fastapi import BackgroundTasks
+
+from .events import get_event_emitter
 from .models import ScenarioExecutionRequest, ScenarioExecutionResponse
+from .persistence import get_run_store
 
 
 class RunNotFoundError(Exception):
@@ -90,7 +94,10 @@ async def _execute(run_id: str, scenario_id: str, parameters: Dict[str, Any]) ->
         )
 
 
-def schedule_execution(payload: ScenarioExecutionRequest) -> ScenarioExecutionResponse:
+def schedule_execution(
+    payload: ScenarioExecutionRequest,
+    background_tasks: Optional[BackgroundTasks] = None,
+) -> ScenarioExecutionResponse:
     run_id = str(uuid.uuid4())
     _persist_and_publish(
         run_id,

@@ -52,4 +52,9 @@ class ScenarioSpec(BaseModel):
     methodology: List[str]
     deliverables: List[str]
     keywords: List[str]
+    tags: List[str]
+    embedding: List[float]
+    restricted_regions: List[str] = Field(default_factory=list)
+    eligibility_tags: List[str] = Field(default_factory=list)
+    requires_accreditation: bool = False
     complexity: str = Field(default="intermediate")

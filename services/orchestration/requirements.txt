@@ -2,3 +2,5 @@ fastapi
 uvicorn
 pydantic
 sse-starlette
+tenacity
+pytest
