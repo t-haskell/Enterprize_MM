@@ -1,64 +1,109 @@
-# Architecture
+# Architecture Overview
 
-## Current Implementation Status
+## Platform Snapshot
 
-### ✅ Implemented
-- **Local Development**: Docker Compose setup with Postgres, Kafka, MLflow, and all services
-- **Basic Services**: API, serving, modeling, and ingestion services with minimal implementations
-- **Data Pipeline**: Simple dummy data generation and basic MLflow model registration
-- **API Endpoints**: Basic `/predict` endpoint with rate limiting (30/minute)
+The system now pivots around a **prompt-first analysis workflow** while keeping
+its heritage as a **multi-modal financial market prediction** stack. Users
+submit natural-language intents to the API which relays them to an orchestration
+service. The orchestrator evaluates the prompt, ranks relevant research
+scenarios, and schedules the selected analytics jobs across the modeling
+service. Supporting services (ingestion, serving, MLflow, Postgres, Kafka)
+provide market, fundamental, textual, and macro data so the generated insights
+blend quantitative signals with language-driven guidance. Legacy prediction
+capabilities remain available for direct model scoring.
 
-### 🚧 Partially Implemented
-- **Data Ingestion**: Prefect flows structure exists but uses dummy data (marked with TODO for real providers)
-- **ML Pipeline**: Basic sklearn LinearRegression model with dummy features
-- **Infrastructure**: Basic Terraform VPC setup, minimal Helm chart structure
-#### Terraform and Helm
-**Terraform**: Infrastructure as Code (IaC) tool for managing cloud and on-premises resources. It creates and manages infrastructure resources such as virtual machines, networks, and databases.
-**Helm**: A package manager for Kubernetes that simplifies the process of installing and managing applications on a Kubernetes cluster. It provides a way to define, install, and upgrade applications using a templating engine and a set of best practices.
-
-
-### 📋 Planned/Not Yet Implemented
-- **Production Data**: Real market data ingestion from providers (Yahoo/Polygon)
-- **Advanced ML**: Multi-modal models, proper feature engineering, model validation
-- **Kubernetes**: Full K8s deployment with Argo CD
-- **Monitoring**: Prometheus/Grafana, proper SLOs and alerting
-- **CI/CD**: Automated testing, building, and deployment pipelines
-
-## Current Architecture
+## Component Topology
 
 ```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   API      │───▶│  Serving   │───▶│  MLflow    │
-│ (FastAPI)  │    │ (FastAPI)  │    │ (Model     │
-│ Port 8000  │    │ Port 8080  │    │  Registry) │
-└─────────────┘    └─────────────┘    └─────────────┘
-       │                   │
-       ▼                   ▼
-┌─────────────┐    ┌─────────────┐
-│  Ingestion │    │  Modeling   │
-│ (Prefect)  │    │ (Training)  │
-└─────────────┘    └─────────────┘
-       │                   │
-       ▼                   ▼
-┌─────────────┐    ┌─────────────┐
-│  Postgres  │    │   Kafka     │
-│   (Data)   │    │ (Streaming) │
-└─────────────┘    └─────────────┘
+┌──────────────────────┐        ┌──────────────────────┐        ┌──────────────────────┐
+│ FastAPI Gateway      │──────▶ │ Orchestration (LLM)  │──────▶ │ Modeling Scenarios   │
+│ /analysis/suggest    │        │ /suggest, /execute   │        │ Quant, Trend, etc.   │
+│ /analysis/run        │        │ Prompt ranking + run │        │ Scenario registry     │
+└─────────┬────────────┘        └─────────┬────────────┘        └─────────┬────────────┘
+          │                                 │                               │
+          │ legacy predict                  │ run metadata                   │ ML artifacts
+          ▼                                 ▼                               ▼
+┌──────────────────────┐        ┌──────────────────────┐        ┌──────────────────────┐
+│ Model Serving (FastAPI)│      │ Postgres + Kafka     │        │ MLflow Registry      │
+│ /predict               │      │ Market data + events │        │ Experiments + models │
+└─────────┬──────────────┘      └──────────────────────┘        └──────────────────────┘
+          │
+          ▼
+┌──────────────────────┐
+│ Frontend (Next.js)   │
+│ Prompt + scenario UI │
+└──────────────────────┘
 ```
 
-## Data Flow
+### Key Responsibilities
 
-1. **Ingestion**: Currently generates dummy OHLCV data, writes to Postgres
-2. **Training**: Reads from Postgres, trains simple linear model, registers with MLflow
-3. **Serving**: Loads latest "Production" model from MLflow, serves predictions
-4. **API**: Gateway that calls serving service with rate limiting
+- **API Gateway (`services/api`)**
+  - Exposes `/analysis/suggest` and `/analysis/run` for the prompt-first UX.
+  - Maintains the legacy `/predict` endpoint for backwards compatibility.
+  - Applies global rate-limiting via SlowAPI.
 
-## Next Steps
+- **Orchestration Service (`services/orchestration`)**
+  - Stores the canonical scenario catalog and keyword metadata.
+  - Ranks scenarios deterministically (keyword similarity) and
+    attaches LLM stub metadata for observability.
+  - Schedules scenario execution and tracks run status in-memory (TODO: persist).
 
-- Replace dummy data with real market data providers
-- Implement proper feature engineering and model validation
-- Add monitoring and observability
-- Deploy to Kubernetes with proper CI/CD
-- Implement multi-modal data ingestion (news, sentiment, etc.)
+- **Modeling Service (`services/modeling`)**
+  - Provides a scenario registry with concrete implementations for
+    quant factor, trend/RS, and earnings momentum analyses.
+  - Hosts placeholders for the remaining scenarios with TODO markers.
+  - Dispatches analytics via `run_scenario` for synchronous or orchestrated use.
 
-See `docs/DEVELOPER_GUIDE.md` for local development setup and `docs/OPERATIONS.md` for operational considerations.
+- **Ingestion (`services/ingestion`)**
+  - Prefect flows for OHLCV, fundamentals, macro indicators, and sentiment.
+  - Currently uses deterministic stubs; ready for vendor SDK integration.
+
+- **Serving (`services/serving`)**
+  - Continues to expose the MLflow-backed `/predict` endpoint for legacy flows.
+
+- **Multi-Modal Data Backbone**
+  - Market structure: minute/daily OHLCV bars, factor composites, and volatility regimes.
+  - Fundamentals: income statement, balance sheet, and cash-flow snapshots with revision history.
+  - Textual + sentiment: earnings-call summaries, news sentiment, and social-signal scores.
+  - Macro + alternative: rates, inflation, employment, and optional alternative datasets (shipping, mobility, etc.).
+  - Each modality is wired through ingestion to scenario modules so prompt-driven analyses surface blended evidence.
+
+- **Shared Infrastructure**
+  - Postgres for market/fundamental data, Kafka for future streaming workloads.
+  - MLflow registry for experiment tracking and model versioning.
+
+## Prompt-First Workflow
+
+1. User enters an intent in the UI (e.g. "long-term dividend compounders").
+2. API validates request and forwards it to the orchestration service.
+3. Orchestrator ranks the scenario catalog and returns the top-N options with
+   rationale and deliverables.
+4. User selects a scenario; API relays execution request to orchestrator.
+5. Orchestrator schedules the run and (when modeling integration is available)
+   executes the appropriate scenario module.
+6. Results are streamed back to the UI once completed (TODO: SSE/WebSockets).
+
+## Data & Analytics Flow
+
+```
+[Ingestion] ──▶ Postgres ─┐
+                         │
+                         ├─▶ [Modeling Scenarios] ──▶ MLflow artifacts/results
+                         │
+[External APIs] ─▶ Kafka ┘
+```
+
+- **Data ingestion** produces normalized tables for prices (`ohlcv`),
+  fundamentals, macro signals, and sentiment. These feed the scenario modules.
+- **Scenario modules** load/pull data (currently synthetic) to generate
+  deliverables such as factor ranks or earnings watchlists.
+- **Modeling outputs** are designed to be persisted (TODO) and surfaced to the UI.
+
+## Outstanding TODOs
+
+- Persist orchestrator run metadata to Postgres/Redis instead of in-memory.
+- Replace deterministic data generators with vendor integrations (Polygon,
+  FactSet, RavenPack, etc.).
+- Extend scenario implementations for all catalog entries.
+- Wire WebSockets or Kafka streams for real-time progress updates to the UI.
+- Harden orchestration with retry/backoff, tracing, and authn/z.

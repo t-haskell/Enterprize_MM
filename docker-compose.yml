@@ -44,6 +44,13 @@ services:
       DATABASE_URL: postgresql+psycopg://mm_user:mm_password@db:5432/market_magic
       MLFLOW_TRACKING_URI: http://mlflow:5000
 
+  orchestrator:
+    build: ./services/orchestration
+    depends_on: [modeling, db]
+    ports: ["8100:8100"]
+    environment:
+      MAX_SCENARIOS: 5
+
   serving:
     build: ./services/serving
     depends_on: [modeling]
@@ -53,5 +60,8 @@ services:
 
   api:
     build: ./services/api
-    depends_on: [serving, db]
+    depends_on: [serving, orchestrator, db]
     ports: ["8000:8000"]
+    environment:
+      ORCHESTRATION_URL: http://orchestrator:8100
+      SERVING_URL: http://serving:8080
