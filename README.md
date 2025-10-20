@@ -9,6 +9,8 @@ fundamentals, text sentiment, macro signals) so the prompt-first UX remains
 grounded in quantitative multi-modal insights. The codebase still ships with
 legacy single-ticker prediction utilities for comparison.
 
+Live GitHub Pages deployment: https://<your-github-username>.github.io/Enterprize_MM/
+
 > This is a *starter* repo: services run locally via `docker compose` and are
 > structured for gradual hardening. Replace placeholders marked with `TODO:`
 > when wiring real data, LLM providers, and persistence layers.

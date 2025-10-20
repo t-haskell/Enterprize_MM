@@ -42,7 +42,11 @@ export default function RunsLandingPage() {
                 <h3 style={{ margin: 0 }}>{item.scenarioName}</h3>
                 <p style={{ margin: '0.5rem 0 0' }}>{new Date(item.timestamp).toLocaleString()}</p>
               </div>
-              <Link href={`/runs/${item.runId}`} className="primary" style={{ textDecoration: 'none' }}>
+              <Link
+                href={{ pathname: '/runs/dashboard', query: { id: item.runId } }}
+                className="primary"
+                style={{ textDecoration: 'none' }}
+              >
                 View dashboard
               </Link>
             </li>

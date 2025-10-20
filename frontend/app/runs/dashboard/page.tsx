@@ -1,15 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect } from 'react';
 import { RunTimeline } from '../../../components/RunTimeline';
 import { useRunStream } from '../../../hooks/useRunStream';
 
 export default function RunDashboardPage() {
-  const params = useParams<{ id?: string | string[] }>();
   const router = useRouter();
-  const runId = Array.isArray(params?.id) ? params?.id?.[0] : params?.id;
+  const searchParams = useSearchParams();
+  const runId = searchParams?.get('id') ?? undefined;
   const { events, latest, error } = useRunStream(runId);
 
   useEffect(() => {
@@ -38,7 +38,7 @@ export default function RunDashboardPage() {
         <article className="card">
           <h2>Status</h2>
           <p>
-            Current state:{' '}
+            Current state{' '}
             <span className={`status-badge ${latest?.status ?? 'queued'}`}>
               {latest?.status ?? 'queued'}
             </span>
