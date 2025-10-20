@@ -31,6 +31,8 @@ async def suggest(request: PromptRequest) -> ScenarioSuggestionResponse:
         llm_metadata = prompt_engine.complete(request.prompt)
     except TokenBudgetExceeded as exc:
         llm_metadata = {"error": str(exc)}
+    finally:
+        prompt_engine.reset_budget()
     response.metadata["llm"] = llm_metadata
     response.metadata.setdefault("max_scenarios", settings.max_scenarios)
     return response
