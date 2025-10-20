@@ -1,121 +1,86 @@
 # Developer Guide
 
-## Current Status
+## Overview
 
-This is a **scaffold/prototype** project that demonstrates the basic structure for a multi-modal ML system. Most components are minimal implementations that need to be expanded for production use.
+The project now delivers a prompt-first analytics flow on top of a
+**multi-modal financial market prediction** backbone. The API service proxies
+natural-language prompts to a dedicated orchestration layer that ranks research
+scenarios and dispatches modeling workloads. Ingestion, modeling, and serving
+continue to provide the market, fundamental, textual, and macro data foundation
+alongside the legacy prediction path.
 
 ## Local Development
 
 ### Prerequisites
-- Docker and Docker Compose
-- Python 3.11+ (for local development)
-- Make (optional, for convenience commands)
 
-### Getting Started
+- Docker + Docker Compose
+- Python 3.11+ (optional for running services locally without containers)
+- `make` for convenience commands
+
+### Quickstart
+
 ```bash
-make bootstrap        # Install pre-commit hooks, create local env files
-make up               # Launch all services via Docker Compose
-make seed             # Load base schema and seed data
-make train            # Run example training flow (creates dummy model)
-make predict          # Test the prediction API with dummy data
-make test             # Run unit tests (basic coverage)
-make down             # Stop all containers
+make bootstrap          # install hooks + copy env templates
+make up                 # build & launch Postgres, Kafka, MLflow, services
+make seed               # initialise database schema
+make train              # run example training job
+make predict            # call the legacy prediction endpoint
 ```
 
-### What Actually Works Right Now
-- **Basic Services**: All services start and communicate with each other
-- **Dummy Data**: Ingestion generates fake OHLCV data for testing
-- **Simple ML**: Basic LinearRegression model trained on dummy features
-- **API Testing**: `/predict` endpoint responds with mock predictions
-- **MLflow**: Model registration and basic tracking
+### Prompt Workflow Smoke Test
 
-### What's Not Production Ready
-- **Data Sources**: Currently generates fake data instead of real market data
-- **ML Models**: Very basic sklearn model, no proper feature engineering
-- **Error Handling**: Minimal error handling and validation
-- **Testing**: Basic test coverage, no integration tests
-- **Security**: No authentication, basic rate limiting only
+```bash
+curl -s http://localhost:8000/analysis/suggest \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "I want a long-term dividend strategy", "max_scenarios": 4}' | jq
 
-## Development Workflow
-
-### Adding Real Data Sources
-The ingestion service has TODO markers for real data providers:
-```python
-# In services/ingestion/src/ingestion/flows.py
-@task
-def fetch_ohlcv(symbol: str, days: int = 5) -> pd.DataFrame:
-    # TODO: replace with real provider call (e.g., Yahoo/Polygon)
-    # Currently generates dummy data
+curl -s http://localhost:8000/analysis/run \
+  -H "Content-Type: application/json" \
+  -d '{"scenario_id": "quant_factor", "parameters": {"universe": ["AAPL", "MSFT", "GOOG"]}}' | jq
 ```
 
-### Improving ML Models
-The modeling service uses a basic LinearRegression:
-```python
-# In services/modeling/modeling/train.py
-# Replace with proper feature engineering and model selection
-model = LinearRegression().fit(X, Y)
+### Service Directory Highlights
+
+- `services/api`
+  - `app/routers/analysis.py` – prompt ingestion + orchestration proxy
+  - `app/routers/legacy.py` – `/predict` compatibility route
+  - `app/schemas.py` – shared Pydantic contracts
+- `services/orchestration`
+  - `app/catalog.py` – canonical scenario definitions (12 entries)
+  - `app/ranking.py` – deterministic keyword scoring
+  - `app/runner.py` – background execution + run tracking (TODO: persistence)
+- `services/modeling`
+  - `modeling/scenarios/` – scenario registry and concrete implementations
+  - `modeling/scenarios/quant_factor.py` – factor composite example
+  - `modeling/scenarios/trend_strength.py` – SMA + RS signal example
+  - `modeling/scenarios/earnings_momentum.py` – earnings/revision signals
+- `services/ingestion`
+  - `src/ingestion/flows.py` – Prefect flows for prices, fundamentals, macro, sentiment
+
+### Testing
+
+The repository contains unit tests for API, orchestration, and modeling
+scenarios. Run them directly (requires dependencies) or inside Docker:
+
+```bash
+pytest services/api/tests -q
+pytest services/orchestration/tests -q
+pytest services/modeling/tests -q
 ```
 
-### Adding New Services
-Follow the existing pattern:
-1. Create service directory in `services/`
-2. Add Dockerfile and requirements.txt
-3. Update `docker-compose.yml`
-4. Add to Makefile targets
+### Configuration Notes
 
-## Conventions
+- API relies on `ORCHESTRATION_URL` and `SERVING_URL` environment variables.
+- Orchestrator exposes port `8100` and can be tuned via `MAX_SCENARIOS`.
+- Scenario implementations expect structured `parameters` dictionaries (see
+  `schemas.py` and scenario docstrings for required keys).
+- TODOs are embedded where production integrations (LLM provider, data vendors,
+  persistent run store) are still pending.
 
-### Code Quality
-- **Python**: Ruff for formatting/linting, MyPy for type checking
-- **Testing**: pytest for unit tests
-- **Dependencies**: Poetry for modeling service, pip for others
-- **Formatting**: Pre-commit hooks for consistent code style
+## Contribution Guidelines
 
-### Configuration
-- **Environment**: Use `.env.example` files as templates
-- **Service Config**: Each service manages its own config
-- **MLflow**: Centralized model registry and experiment tracking
-
-### Versioning
-- **Git**: GitHub flow with protected `main` branch
-- **Models**: MLflow handles model versioning
-- **Data**: Basic schema versioning via SQL scripts
-
-## Environment Structure
-
-```
-dev/          # Local development (Docker Compose)
-├── Postgres  # Market data storage
-├── Kafka     # Streaming data (not yet used)
-├── MLflow    # Model registry
-└── Services  # All microservices
-
-stage/        # Not yet implemented
-prod/         # Not yet implemented
-```
-
-## Common Issues & Solutions
-
-### Model Not Found
-- Ensure `make train` has been run
-- Check MLflow UI at http://localhost:5000
-- Verify model is in "Production" stage
-
-### Database Connection Issues
-- Run `make seed` to initialize schema
-- Check if Postgres container is running
-- Verify connection strings in `.env` files
-
-### Service Communication
-- All services must be running (`make up`)
-- Check service logs: `docker compose logs <service>`
-- Verify network connectivity between containers
-
-## Next Development Priorities
-
-1. **Real Data Integration**: Replace dummy data with actual market data providers
-2. **Feature Engineering**: Implement proper technical indicators and features
-3. **Model Validation**: Add cross-validation, backtesting, and performance metrics
-4. **Error Handling**: Comprehensive error handling and logging
-5. **Testing**: Expand test coverage and add integration tests
-6. **Monitoring**: Add proper observability and alerting
+- Prefer small, well-scoped PRs with tests.
+- Use TODO comments sparingly and include context/links when possible.
+- Follow Ruff formatting (run `ruff format` and `ruff check`) and MyPy for
+  modeling service contributions.
+- Document new scenarios or API changes in `docs/ARCHITECTURE.md` + README.

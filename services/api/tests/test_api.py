@@ -1,38 +1,89 @@
-"""Basic tests for API service."""
+"""Tests for the API layer."""
+from __future__ import annotations
 
-def test_imports():
-    """Test that main modules can be imported without errors."""
-    try:
-        import fastapi
-        import httpx
-        import slowapi
-        import pydantic
-        assert True, "All required packages imported successfully"
-    except ImportError as e:
-        assert False, f"Failed to import required package: {e}"
+from fastapi.testclient import TestClient
 
-def test_basic_functionality():
-    """Test basic functionality."""
-    assert True, "Basic test passes"
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-def test_pydantic_model():
-    """Test Pydantic model functionality."""
-    from pydantic import BaseModel
-    
-    class TestModel(BaseModel):
-        name: str
-        value: int
-    
-    model = TestModel(name="test", value=42)
-    assert model.name == "test"
-    assert model.value == 42
+from services.api.app.main import app
 
-def test_fastapi_import():
-    """Test that FastAPI can be imported and basic app creation works."""
-    try:
-        from fastapi import FastAPI
-        app = FastAPI()
-        assert app.title == "FastAPI"
-        assert True, "FastAPI app created successfully"
-    except Exception as e:
-        assert False, f"Failed to create FastAPI app: {e}" 
+
+def test_healthcheck():
+    client = TestClient(app)
+    response = client.get("/healthz")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+def test_analysis_suggest(monkeypatch):
+    from services.api.app.routers import analysis
+
+    expected = {
+        "prompt": "test",
+        "options": [
+            {
+                "scenario_id": "quant_factor",
+                "title": "Quant Factor Screen",
+                "short_description": "Value/quality/momentum composite",
+                "rationale": "Matches factors",
+                "inputs": ["universe"],
+                "methodology": ["z-scores"],
+                "deliverables": ["top tickers"],
+                "score": 0.9,
+            }
+        ],
+        "metadata": {"model": "stub"},
+    }
+
+    async def fake_post(path, payload):
+        assert path == "/suggest"
+        return expected
+
+    monkeypatch.setattr(analysis, "_post_to_orchestrator", fake_post)
+
+    client = TestClient(app)
+    resp = client.post("/analysis/suggest", json={"prompt": "test"})
+    assert resp.status_code == 200
+    assert resp.json() == expected
+
+
+def test_analysis_run(monkeypatch):
+    from services.api.app.routers import analysis
+
+    expected = {
+        "run_id": "123",
+        "status": "queued",
+        "message": "scheduled",
+        "scenario_id": "quant_factor",
+        "parameters": {"universe": ["AAPL", "MSFT"]},
+    }
+
+    async def fake_post(path, payload):
+        assert path == "/execute"
+        return expected
+
+    monkeypatch.setattr(analysis, "_post_to_orchestrator", fake_post)
+
+    client = TestClient(app)
+    resp = client.post("/analysis/run", json={"scenario_id": "quant_factor", "parameters": {}})
+    assert resp.status_code == 200
+    assert resp.json() == expected
+
+
+def test_legacy_predict(monkeypatch):
+    from services.api.app.routers import legacy
+
+    expected = {"symbol": "AAPL", "prediction": 101.0}
+
+    async def fake_post(path, payload):
+        assert path == "/predict"
+        return expected
+
+    monkeypatch.setattr(legacy, "_post", fake_post)
+
+    client = TestClient(app)
+    resp = client.post("/predict", json={"symbol": "AAPL"})
+    assert resp.status_code == 200
+    assert resp.json() == expected
