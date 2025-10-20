@@ -112,7 +112,7 @@ export default function HomePage() {
         });
         window.localStorage.setItem('runHistory', JSON.stringify(history.slice(0, 10)));
       }
-      router.push(`/runs/${run.run_id}`);
+      router.push(`/runs/dashboard?id=${run.run_id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to schedule scenario.');
       setStatusMessage('');
