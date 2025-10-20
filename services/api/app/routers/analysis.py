@@ -6,6 +6,7 @@ from typing import Any, Dict
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, status
+from pydantic import ValidationError
 
 from ..dependencies import limiter
 from ..schemas import (
@@ -43,7 +44,13 @@ async def suggest_analysis(request: Request) -> ScenarioSuggestionResponse:
         payload_data = await request.json()
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON payload") from exc
-    payload = PromptRequest.model_validate(payload_data)
+    try:
+        payload = PromptRequest.model_validate(payload_data)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.errors(),
+        ) from exc
     data = await _post_to_orchestrator("/suggest", payload.model_dump())
     return ScenarioSuggestionResponse.model_validate(data)
 
@@ -57,6 +64,12 @@ async def run_analysis(request: Request) -> ScenarioExecutionResponse:
         payload_data = await request.json()
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON payload") from exc
-    payload = ScenarioExecutionRequest.model_validate(payload_data)
+    try:
+        payload = ScenarioExecutionRequest.model_validate(payload_data)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.errors(),
+        ) from exc
     data = await _post_to_orchestrator("/execute", payload.model_dump())
     return ScenarioExecutionResponse.model_validate(data)
