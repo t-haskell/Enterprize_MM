@@ -67,7 +67,7 @@ def fetch_equity_prices(
     for symbol in symbols:
         frame = client.get_aggregates(symbol, start, end)
         if frame.empty:
-            logger.warning("No equity bars returned", symbol=symbol)
+            logger.warning("No equity bars returned for symbol %s", symbol)
             continue
         frames.append(frame)
     if not frames:
@@ -133,13 +133,27 @@ def fetch_fundamental_filings(symbols: Iterable[str]) -> pd.DataFrame:
     rows: List[dict] = []
     for symbol, cik in _enumerate_ciks(symbols):
         facts = client.get_company_facts(cik)
-        revenues = (
-            facts.get("facts", {})
-            .get("IncomeStatement", {})
-            .get("Revenues", {})
-            .get("units", {})
-            .get("USD", [])
-        )
+        taxonomy = facts.get("facts", {})
+        revenues: List[dict] = []
+
+        for key in ("us-gaap", "IncomeStatement"):
+            container = taxonomy.get(key, {})
+            revenue_fact = container.get("Revenues", {}) if isinstance(container, dict) else {}
+            revenues = revenue_fact.get("units", {}).get("USD", [])
+            if revenues:
+                break
+
+        if not revenues:
+            for container in taxonomy.values():
+                if not isinstance(container, dict):
+                    continue
+                revenue_fact = container.get("Revenues", {})
+                if not isinstance(revenue_fact, dict):
+                    continue
+                revenues = revenue_fact.get("units", {}).get("USD", [])
+                if revenues:
+                    break
+
         for entry in revenues:
             rows.append(
                 {
