@@ -3,11 +3,30 @@ from __future__ import annotations
 
 from typing import Dict, List
 
+from .embeddings import get_embedder
 from .models import ScenarioSpec
+
+_EMBEDDER = get_embedder()
+
+
+def _spec(**kwargs) -> ScenarioSpec:
+    keywords = kwargs["keywords"]
+    narrative = " ".join(
+        [
+            kwargs["title"],
+            kwargs["short_description"],
+            kwargs["rationale"],
+            " ".join(kwargs.get("methodology", [])),
+            " ".join(kwargs.get("deliverables", [])),
+            " ".join(keywords),
+        ]
+    )
+    embedding = _EMBEDDER.embed_text(narrative)
+    return ScenarioSpec(embedding=embedding, **kwargs)
 
 
 SCENARIO_CATALOG: Dict[str, ScenarioSpec] = {
-    "quant_factor": ScenarioSpec(
+    "quant_factor": _spec(
         scenario_id="quant_factor",
         title="Quant Factor Screen (Value/Quality/Momentum)",
         short_description="Composite factor scoring with optional ML ranking",
@@ -20,8 +39,10 @@ SCENARIO_CATALOG: Dict[str, ScenarioSpec] = {
         ],
         deliverables=["Top-N tickers", "Factor attribution", "Backtest KPIs (CAGR, Sharpe, max drawdown)"],
         keywords=["value", "quality", "momentum", "factors", "quant", "z-score", "backtest"],
+        tags=["equities", "systematic", "fundamental"],
+        eligibility_tags=["suitable_long_only"],
     ),
-    "trend_strength": ScenarioSpec(
+    "trend_strength": _spec(
         scenario_id="trend_strength",
         title="Trend & Relative Strength",
         short_description="Trend filters with relative strength overlays",
@@ -34,8 +55,10 @@ SCENARIO_CATALOG: Dict[str, ScenarioSpec] = {
         ],
         deliverables=["Trend-qualified tickers", "RS leaderboard", "Position size guidance"],
         keywords=["trend", "momentum", "relative strength", "moving average", "kelly"],
+        tags=["equities", "technical", "momentum"],
+        eligibility_tags=["suitable_long_only"],
     ),
-    "earnings_momentum": ScenarioSpec(
+    "earnings_momentum": _spec(
         scenario_id="earnings_momentum",
         title="Earnings Momentum & Revisions",
         short_description="Capture post-earnings drift and analyst revisions",
@@ -48,8 +71,10 @@ SCENARIO_CATALOG: Dict[str, ScenarioSpec] = {
         ],
         deliverables=["Pre/post earnings watchlist", "Signal diagnostics", "Event calendar"],
         keywords=["earnings", "revisions", "post-earnings drift", "logistic"],
+        tags=["equities", "event", "fundamental"],
+        eligibility_tags=["suitable_long_only"],
     ),
-    "lightweight_dcf": ScenarioSpec(
+    "lightweight_dcf": _spec(
         scenario_id="lightweight_dcf",
         title="Lightweight DCF & Margin-of-Safety",
         short_description="Scenario-based discounted cash-flow valuation",
@@ -62,8 +87,10 @@ SCENARIO_CATALOG: Dict[str, ScenarioSpec] = {
         ],
         deliverables=["Margin-of-safety vs price", "Sensitivity tornado", "Undervalued list"],
         keywords=["dcf", "valuation", "margin of safety", "monte carlo"],
+        tags=["equities", "valuation", "fundamental"],
+        eligibility_tags=["suitable_long_only"],
     ),
-    "dividend_growth": ScenarioSpec(
+    "dividend_growth": _spec(
         scenario_id="dividend_growth",
         title="Dividend-Growth Defensives",
         short_description="Screen for durable dividend growers",
@@ -76,8 +103,10 @@ SCENARIO_CATALOG: Dict[str, ScenarioSpec] = {
         ],
         deliverables=["Dividend safety scorecard", "Durable yield candidates"],
         keywords=["dividend", "defensive", "income", "quality", "payout"],
+        tags=["equities", "income", "defensive"],
+        eligibility_tags=["suitable_income"],
     ),
-    "macro_regime": ScenarioSpec(
+    "macro_regime": _spec(
         scenario_id="macro_regime",
         title="Macro-Regime Tilt",
         short_description="Regime-aware allocation suggestions",
@@ -90,8 +119,10 @@ SCENARIO_CATALOG: Dict[str, ScenarioSpec] = {
         ],
         deliverables=["Regime map", "Suggested tilts", "Stress tests"],
         keywords=["macro", "regime", "allocation", "black-litterman", "stress"],
+        tags=["multi-asset", "macro", "allocation"],
+        eligibility_tags=["portfolio_construction"],
     ),
-    "nlp_sentiment": ScenarioSpec(
+    "nlp_sentiment": _spec(
         scenario_id="nlp_sentiment",
         title="News & Social Sentiment (NLP)",
         short_description="FinBERT-driven sentiment analytics",
@@ -104,8 +135,10 @@ SCENARIO_CATALOG: Dict[str, ScenarioSpec] = {
         ],
         deliverables=["Sentiment-ranked tickers", "Why-now snippets", "Risk flags"],
         keywords=["sentiment", "nlp", "finbert", "news", "social"],
+        tags=["equities", "nlp", "alternative_data"],
+        eligibility_tags=["suitable_long_only"],
     ),
-    "insider_buybacks": ScenarioSpec(
+    "insider_buybacks": _spec(
         scenario_id="insider_buybacks",
         title="Insider Buying & Buybacks",
         short_description="Blend insider activity with capital returns",
@@ -118,8 +151,10 @@ SCENARIO_CATALOG: Dict[str, ScenarioSpec] = {
         ],
         deliverables=["Capital-return shortlist", "Float shrink trajectory"],
         keywords=["insider", "buybacks", "capital return"],
+        tags=["equities", "capital_allocation"],
+        eligibility_tags=["suitable_long_only"],
     ),
-    "theme_basket": ScenarioSpec(
+    "theme_basket": _spec(
         scenario_id="theme_basket",
         title="Secular Theme Basket",
         short_description="Curate theme baskets with HRP weighting",
@@ -132,8 +167,10 @@ SCENARIO_CATALOG: Dict[str, ScenarioSpec] = {
         ],
         deliverables=["Theme basket", "Holdings rationale", "Overlap map"],
         keywords=["theme", "hrp", "basket", "moat"],
+        tags=["equities", "thematic", "portfolio"],
+        eligibility_tags=["portfolio_construction"],
     ),
-    "pair_trade": ScenarioSpec(
+    "pair_trade": _spec(
         scenario_id="pair_trade",
         title="Hedged Single-Name (Pair Trade)",
         short_description="Construct long/short pair trades",
@@ -146,8 +183,11 @@ SCENARIO_CATALOG: Dict[str, ScenarioSpec] = {
         ],
         deliverables=["Trade pair", "Hedge ratio", "Risk rules"],
         keywords=["pair trade", "hedge", "cointegration", "beta"],
+        tags=["equities", "hedging", "long_short"],
+        eligibility_tags=["hedging", "advanced_derivatives"],
+        requires_accreditation=True,
     ),
-    "smart_beta": ScenarioSpec(
+    "smart_beta": _spec(
         scenario_id="smart_beta",
         title="Core Index + Smart-Beta Tilt",
         short_description="Blend core exposures with factor tilts",
@@ -160,8 +200,10 @@ SCENARIO_CATALOG: Dict[str, ScenarioSpec] = {
         ],
         deliverables=["Core-satellite weights", "Risk contributions", "Scenario analysis"],
         keywords=["smart beta", "tracking error", "erc", "portfolio"],
+        tags=["multi-asset", "portfolio", "allocation"],
+        eligibility_tags=["portfolio_construction"],
     ),
-    "dca_planner": ScenarioSpec(
+    "dca_planner": _spec(
         scenario_id="dca_planner",
         title="DCA Planner with Regime-Aware Overlays",
         short_description="Plan dollar-cost averaging with guardrails",
@@ -174,6 +216,9 @@ SCENARIO_CATALOG: Dict[str, ScenarioSpec] = {
         ],
         deliverables=["Schedule", "Conditional tilts", "Risk guardrails"],
         keywords=["dca", "planner", "regime", "volatility", "valuation"],
+        tags=["multi-asset", "planning", "retail"],
+        eligibility_tags=["suitable_income", "portfolio_construction"],
+        restricted_regions=["SG"],
     ),
 }
 
