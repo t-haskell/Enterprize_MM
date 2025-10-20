@@ -6,8 +6,10 @@ The project now delivers a prompt-first analytics flow on top of a
 **multi-modal financial market prediction** backbone. The API service proxies
 natural-language prompts to a dedicated orchestration layer that ranks research
 scenarios and dispatches modeling workloads. Ingestion, modeling, and serving
-continue to provide the market, fundamental, textual, and macro data foundation
-alongside the legacy prediction path.
+continue to provide the market, fundamental, textual, sentiment, macro, and
+alternative data foundation alongside the legacy prediction path. Scenario
+implementations consume these modalities explicitly so contributors can reason
+about how each data feed influences prompt-driven outputs.
 
 ## Local Development
 

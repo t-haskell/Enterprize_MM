@@ -61,6 +61,13 @@ capabilities remain available for direct model scoring.
 - **Serving (`services/serving`)**
   - Continues to expose the MLflow-backed `/predict` endpoint for legacy flows.
 
+- **Multi-Modal Data Backbone**
+  - Market structure: minute/daily OHLCV bars, factor composites, and volatility regimes.
+  - Fundamentals: income statement, balance sheet, and cash-flow snapshots with revision history.
+  - Textual + sentiment: earnings-call summaries, news sentiment, and social-signal scores.
+  - Macro + alternative: rates, inflation, employment, and optional alternative datasets (shipping, mobility, etc.).
+  - Each modality is wired through ingestion to scenario modules so prompt-driven analyses surface blended evidence.
+
 - **Shared Infrastructure**
   - Postgres for market/fundamental data, Kafka for future streaming workloads.
   - MLflow registry for experiment tracking and model versioning.

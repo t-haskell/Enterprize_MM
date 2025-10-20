@@ -43,7 +43,7 @@ curl -s http://localhost:8000/analysis/run \
 - **services/ingestion** – Prefect flows for OHLCV, fundamentals, macro, sentiment (deterministic stubs).
 - **services/serving** – MLflow-backed legacy prediction service.
 - **frontend/** – Next.js front-end (pending update to consume new endpoints).
-- **docs/** – Architecture + developer guides reflecting the prompt-first flow.
+- **docs/** – Architecture + developer guides reflecting the prompt-first, multi-modal flow.
 
 See `docs/ARCHITECTURE.md` and `docs/DEVELOPER_GUIDE.md` for deeper detail.
 
