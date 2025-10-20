@@ -18,9 +18,13 @@ legacy single-ticker prediction utilities for comparison.
 ```bash
 make bootstrap        # install pre-commit hooks + copy env templates
 make up               # launch Postgres, Kafka, MLflow, API, orchestrator, etc.
+make orchestrator     # iterate on orchestration service (rebuilds and restarts only that container)
+make api              # rebuild/restart the FastAPI gateway if you touch /analysis routes
 make seed             # load base schema and seed data
-make train            # run example modeling job (dummy data)
-make predict          # call legacy prediction endpoint
+
+cd frontend
+npm install
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000 npm run dev  # http://localhost:3000
 ```
 
 ## Prompt Workflow Demo
@@ -33,7 +37,21 @@ curl -s http://localhost:8000/analysis/suggest \
 curl -s http://localhost:8000/analysis/run \
   -H "Content-Type: application/json" \
   -d '{"scenario_id": "trend_strength", "parameters": {"universe": ["AAPL","MSFT","GOOG"]}}' | jq
+
+# Follow the orchestrator's SSE feed for a run
+curl -N http://localhost:8000/analysis/runs/<run_id>/stream
 ```
+
+## Frontend Walkthrough
+
+The refreshed Next.js UI collects prompts, highlights the top five ranked
+scenarios, and opens real-time dashboards for each run. Tooltips and an FAQ
+section explain how ranking works, while prompt submissions are logged through a
+lightweight analytics endpoint.
+
+![Prompt orchestration landing page](docs/images/frontend-overview.svg)
+
+![Run dashboard streaming updates](docs/images/run-dashboard.svg)
 
 ## High-Level Architecture
 
@@ -42,7 +60,7 @@ curl -s http://localhost:8000/analysis/run \
 - **services/modeling** – Scenario registry with concrete quant factor, trend/RS, and earnings modules plus placeholders.
 - **services/ingestion** – Prefect flows for OHLCV, fundamentals, macro, sentiment (deterministic stubs).
 - **services/serving** – MLflow-backed legacy prediction service.
-- **frontend/** – Next.js front-end (pending update to consume new endpoints).
+- **frontend/** – Next.js front-end with prompt capture, ranked scenarios, run dashboards, analytics logging, and accessibility helpers.
 - **docs/** – Architecture + developer guides reflecting the prompt-first, multi-modal flow.
 
 See `docs/ARCHITECTURE.md` and `docs/DEVELOPER_GUIDE.md` for deeper detail.
@@ -50,7 +68,7 @@ See `docs/ARCHITECTURE.md` and `docs/DEVELOPER_GUIDE.md` for deeper detail.
 ## TODO Highlights
 
 - Integrate a production LLM provider for richer prompt understanding.
-- Persist orchestration run metadata (Postgres/Redis) and expose SSE/WebSocket progress.
+- Persist orchestration run metadata (Postgres/Redis) beyond the current in-memory store.
 - Replace synthetic data generators with vendor feeds and connect scenario modules.
-- Flesh out remaining scenario implementations beyond placeholders.
-- Update the Next.js UI to render scenario cards and run dashboards.
+- Expand scenario implementations and automate regression checks across the catalogue.
+- Wire the analytics endpoint to a persistent warehouse / product analytics stack.

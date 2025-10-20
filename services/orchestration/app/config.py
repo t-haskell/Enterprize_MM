@@ -14,6 +14,11 @@ class Settings:
     default_timeout: float = float(os.getenv("MODEL_TIMEOUT", "30"))
     modeling_backend: str = os.getenv("MODELING_BACKEND", "local")
     modeling_endpoint: str = os.getenv("MODELING_ENDPOINT", "http://modeling:9000")
+    cors_allow_origins: tuple[str, ...] = tuple(
+        origin.strip()
+        for origin in os.getenv("CORS_ALLOW_ORIGINS", "*").split(",")
+        if origin.strip()
+    ) or ("*",)
 
 
 @lru_cache(maxsize=1)

@@ -1,109 +1,131 @@
 # Architecture Overview
 
-## Platform Snapshot
+## System Context
 
-The system now pivots around a **prompt-first analysis workflow** while keeping
-its heritage as a **multi-modal financial market prediction** stack. Users
-submit natural-language intents to the API which relays them to an orchestration
-service. The orchestrator evaluates the prompt, ranks relevant research
-scenarios, and schedules the selected analytics jobs across the modeling
-service. Supporting services (ingestion, serving, MLflow, Postgres, Kafka)
-provide market, fundamental, textual, and macro data so the generated insights
-blend quantitative signals with language-driven guidance. Legacy prediction
-capabilities remain available for direct model scoring.
-
-## Component Topology
-
-```
-┌──────────────────────┐        ┌──────────────────────┐        ┌──────────────────────┐
-│ FastAPI Gateway      │──────▶ │ Orchestration (LLM)  │──────▶ │ Modeling Scenarios   │
-│ /analysis/suggest    │        │ /suggest, /execute   │        │ Quant, Trend, etc.   │
-│ /analysis/run        │        │ Prompt ranking + run │        │ Scenario registry     │
-└─────────┬────────────┘        └─────────┬────────────┘        └─────────┬────────────┘
-          │                                 │                               │
-          │ legacy predict                  │ run metadata                   │ ML artifacts
-          ▼                                 ▼                               ▼
-┌──────────────────────┐        ┌──────────────────────┐        ┌──────────────────────┐
-│ Model Serving (FastAPI)│      │ Postgres + Kafka     │        │ MLflow Registry      │
-│ /predict               │      │ Market data + events │        │ Experiments + models │
-└─────────┬──────────────┘      └──────────────────────┘        └──────────────────────┘
-          │
-          ▼
-┌──────────────────────┐
-│ Frontend (Next.js)   │
-│ Prompt + scenario UI │
-└──────────────────────┘
+```mermaid
+flowchart LR
+    user((Researcher)) -->|prompt| ui[Next.js Frontend]
+    ui -->|REST /analysis| api[FastAPI Gateway]
+    api -->|/suggest, /execute| orch[Orchestration Service]
+    orch -->|ranked scenarios| api
+    orch -->|async jobs| runner[(Scenario Runner)]
+    runner --> modeling[Modeling Service]
+    modeling --> mlflow[MLflow Registry]
+    modeling --> postgres[(Postgres)]
+    modeling --> kafka[(Kafka Streams)]
+    orch -->|SSE| ui
+    ingestion[Prefect Ingestion] --> postgres
+    ingestion --> kafka
+    alt_data[(Alt + Vendor Feeds)] --> ingestion
 ```
 
-### Key Responsibilities
+The platform centres on a **prompt-driven orchestration layer** that curates a
+catalogue of analytics scenarios and streams run progress back to the user
+interface. Legacy prediction endpoints remain available, but all new workflows
+enter through the `/analysis` API exposed by the FastAPI gateway.
 
-- **API Gateway (`services/api`)**
-  - Exposes `/analysis/suggest` and `/analysis/run` for the prompt-first UX.
-  - Maintains the legacy `/predict` endpoint for backwards compatibility.
-  - Applies global rate-limiting via SlowAPI.
+- **Frontend (Next.js)** gathers the prompt, renders ranked scenario cards, and
+  opens live run dashboards using Server-Sent Events (SSE) to follow job
+  progress.
+- **API Gateway (`services/api`)** validates incoming requests, enforces
+  rate limits, and proxies traffic to the orchestration service.
+- **Orchestration (`services/orchestration`)** owns the scenario catalogue,
+  performs deterministic keyword ranking backed by an LLM prompt stub, schedules
+  modeling jobs, and publishes lifecycle updates via SSE.
+- **Modeling (`services/modeling`)** contains the concrete scenario
+  implementations (quant factors, trend strength, earnings momentum, etc.) that
+  the orchestrator dispatches.
+- **Ingestion (`services/ingestion`)** loads market, fundamental, macro, and
+  sentiment data into Postgres/Kafka so scenario modules can blend modalities.
+- **Serving (`services/serving`)** continues to expose the MLflow-backed
+  `/predict` endpoint for backwards compatibility.
 
-- **Orchestration Service (`services/orchestration`)**
-  - Stores the canonical scenario catalog and keyword metadata.
-  - Ranks scenarios deterministically (keyword similarity) and
-    attaches LLM stub metadata for observability.
-  - Schedules scenario execution and tracks run status in-memory (TODO: persist).
+## Scenario Catalogue & Ranking
 
-- **Modeling Service (`services/modeling`)**
-  - Provides a scenario registry with concrete implementations for
-    quant factor, trend/RS, and earnings momentum analyses.
-  - Hosts placeholders for the remaining scenarios with TODO markers.
-  - Dispatches analytics via `run_scenario` for synchronous or orchestrated use.
+The orchestration service keeps an authoritative scenario catalogue
+(`app/catalog.py`). Each entry describes:
 
-- **Ingestion (`services/ingestion`)**
-  - Prefect flows for OHLCV, fundamentals, macro indicators, and sentiment.
-  - Currently uses deterministic stubs; ready for vendor SDK integration.
+- `scenario_id` and human friendly title/description.
+- Key **inputs** (tickers, universes, horizons) and methodological notes.
+- Expected **deliverables** (factor ladders, watchlists, narrative summaries).
+- Keyword metadata that powers the deterministic scorer today and seeds the LLM
+  reranker when a provider is connected.
 
-- **Serving (`services/serving`)**
-  - Continues to expose the MLflow-backed `/predict` endpoint for legacy flows.
+When a prompt arrives, the ranking module tokenises it, applies keyword
+frequency/affinity scoring, and returns the top `MAX_SCENARIOS` options. The
+response embeds lightweight LLM metadata (`PromptEngine`) so the UI can surface
+model provenance even while the provider is stubbed locally.
 
-- **Multi-Modal Data Backbone**
-  - Market structure: minute/daily OHLCV bars, factor composites, and volatility regimes.
-  - Fundamentals: income statement, balance sheet, and cash-flow snapshots with revision history.
-  - Textual + sentiment: earnings-call summaries, news sentiment, and social-signal scores.
-  - Macro + alternative: rates, inflation, employment, and optional alternative datasets (shipping, mobility, etc.).
-  - Each modality is wired through ingestion to scenario modules so prompt-driven analyses surface blended evidence.
+## Orchestration Runtime & Streaming
 
-- **Shared Infrastructure**
-  - Postgres for market/fundamental data, Kafka for future streaming workloads.
-  - MLflow registry for experiment tracking and model versioning.
+```mermaid
+flowchart TD
+    req[ScenarioExecutionRequest] --> schedule
+    schedule -->|persist state| store[(Run Store)]
+    schedule --> task[asyncio.create_task]
+    task --> execute[_execute]
+    execute -->|result| store
+    store --> sse[(SSE Hub)]
+    sse -->|text/event-stream| apiProxy
+    apiProxy --> ui
+```
 
-## Prompt-First Workflow
+- Each execution receives a UUID and an initial `queued` state persisted in an
+  in-memory store. When the background worker takes ownership it emits a
+  `running` update, and every transition is broadcast to any SSE subscribers.
+- The asynchronous runner imports the modeling scenario, executes it on a
+  background thread, and writes either `succeeded` (with payload) or `failed`
+  (with error context) back to the store.
+- Subscribers consume Server-Sent Events via `/runs/{id}/stream`. The API
+  gateway proxies this stream so browsers can connect without hitting the
+  internal service directly.
+- Multiple subscribers can observe the same run concurrently thanks to an
+  asyncio-based publish/subscribe fan-out.
 
-1. User enters an intent in the UI (e.g. "long-term dividend compounders").
-2. API validates request and forwards it to the orchestration service.
-3. Orchestrator ranks the scenario catalog and returns the top-N options with
-   rationale and deliverables.
-4. User selects a scenario; API relays execution request to orchestrator.
-5. Orchestrator schedules the run and (when modeling integration is available)
-   executes the appropriate scenario module.
-6. Results are streamed back to the UI once completed (TODO: SSE/WebSockets).
+Future hardening (see TODOs) includes persisting run metadata in Postgres/Redis,
+plugging in a production LLM, and extending retries/backoff across scenario
+executions.
+
+## End-to-End Job Lifecycle
+
+1. **Prompt Submission** – The Next.js landing page posts the user's prompt to
+   `/analysis/suggest`, displays the top five ranked scenarios, and logs prompt
+   analytics through the frontend's `/api/analytics` endpoint.
+2. **Scenario Selection** – Choosing a scenario triggers `/analysis/run`, which
+   schedules the job inside the orchestration service and returns a `run_id`.
+3. **Run Dashboard** – The UI navigates to `/runs/{run_id}` and opens an SSE
+   stream (or polling fallback). Initial `queued` state is shown immediately
+   while the modeling engine spins up.
+4. **Model Execution** – Scenario code reads from Postgres/Kafka (deterministic
+   stubs locally) and generates factor scores, watchlists, or textual summaries.
+5. **Streaming Updates** – State changes (`queued` → `running` →
+   `succeeded`/`failed`) are
+   emitted over SSE and rendered in the dashboard timeline.
+6. **Result Delivery** – Once complete, the modeling payload is displayed and
+   persisted (planned) for follow-up workflows such as report generation or
+   alerts.
 
 ## Data & Analytics Flow
 
+```mermaid
+sequenceDiagram
+    participant IG as Ingestion
+    participant DB as Postgres/Kafka
+    participant MOD as Modeling Scenarios
+    participant ORC as Orchestrator
+    participant UI as Next.js UI
+
+    IG->>DB: Prefect jobs load OHLCV, fundamentals, macro, sentiment
+    UI->>ORC: Prompt (intent, optional profile)
+    ORC->>ORC: Rank scenario catalogue (keywords + LLM stub)
+    ORC-->>UI: Ranked options & metadata
+    UI->>ORC: Execute scenario request
+    ORC->>MOD: Dispatch scenario via asyncio runner
+    MOD->>DB: Read multi-modal datasets
+    MOD-->>ORC: Result payload / error details
+    ORC-->>UI: SSE status + final result
 ```
-[Ingestion] ──▶ Postgres ─┐
-                         │
-                         ├─▶ [Modeling Scenarios] ──▶ MLflow artifacts/results
-                         │
-[External APIs] ─▶ Kafka ┘
-```
 
-- **Data ingestion** produces normalized tables for prices (`ohlcv`),
-  fundamentals, macro signals, and sentiment. These feed the scenario modules.
-- **Scenario modules** load/pull data (currently synthetic) to generate
-  deliverables such as factor ranks or earnings watchlists.
-- **Modeling outputs** are designed to be persisted (TODO) and surfaced to the UI.
-
-## Outstanding TODOs
-
-- Persist orchestrator run metadata to Postgres/Redis instead of in-memory.
-- Replace deterministic data generators with vendor integrations (Polygon,
-  FactSet, RavenPack, etc.).
-- Extend scenario implementations for all catalog entries.
-- Wire WebSockets or Kafka streams for real-time progress updates to the UI.
-- Harden orchestration with retry/backoff, tracing, and authn/z.
+This flow keeps the orchestration layer thin: it selects, schedules, and tracks
+work while the modeling service performs the heavy data lifting. As additional
+scenarios are added, they register with the catalog and share the same lifecycle.

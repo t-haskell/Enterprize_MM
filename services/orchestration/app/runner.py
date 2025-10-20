@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Any, Dict, Optional
+from collections import defaultdict
+from datetime import datetime, timezone
+from typing import Any, AsyncGenerator, Dict, Set
 
 from fastapi import BackgroundTasks
 
@@ -11,56 +13,85 @@ from .events import get_event_emitter
 from .models import ScenarioExecutionRequest, ScenarioExecutionResponse
 from .persistence import get_run_store
 
-_STORE = get_run_store()
-_EMITTER = get_event_emitter()
+
+class RunNotFoundError(Exception):
+    """Raised when attempting to stream a run that does not exist."""
+
+
+_RUN_STORE: Dict[str, Dict[str, Any]] = {}
+_RUN_SUBSCRIBERS: Dict[str, Set[asyncio.Queue[Dict[str, Any]]]] = defaultdict(set)
+
+
+def _persist_and_publish(run_id: str, state: Dict[str, Any]) -> None:
+    """Persist the latest run state and broadcast it to subscribers."""
+
+    payload = state.copy()
+    payload.setdefault("run_id", run_id)
+    payload.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
+
+    _RUN_STORE[run_id] = payload
+    for queue in list(_RUN_SUBSCRIBERS.get(run_id, set())):
+        queue.put_nowait(payload.copy())
 
 
 async def _execute(run_id: str, scenario_id: str, parameters: Dict[str, Any]) -> None:
-    await _EMITTER.emit(
-        "run.started",
-        {"run_id": run_id, "scenario_id": scenario_id, "parameters": parameters},
+    _persist_and_publish(
+        run_id,
+        {
+            "status": "running",
+            "message": "Executing scenario",
+            "scenario_id": scenario_id,
+            "parameters": parameters,
+        },
     )
+
     try:
         from modeling.scenarios.runner import run_scenario  # type: ignore
     except Exception as exc:  # pragma: no cover - runtime dependency guard
-        payload = {
-            "status": "failed",
-            "message": f"Modeling backend unavailable: {exc}",
-            "scenario_id": scenario_id,
-            "parameters": parameters,
-        }
-        _STORE.update(run_id, payload)
-        await _EMITTER.emit("run.failed", {"run_id": run_id, **payload})
+        _persist_and_publish(
+            run_id,
+            {
+                "status": "failed",
+                "message": f"Modeling backend unavailable: {exc}",
+                "scenario_id": scenario_id,
+                "parameters": parameters,
+            },
+        )
         return
 
     try:
         result = await asyncio.to_thread(run_scenario, scenario_id, parameters)
-        payload = {
-            "status": "succeeded",
-            "message": "Completed",
-            "scenario_id": scenario_id,
-            "parameters": parameters,
-            "result": result,
-        }
-        _STORE.update(run_id, payload)
-        await _EMITTER.emit("run.succeeded", {"run_id": run_id, **payload})
+        _persist_and_publish(
+            run_id,
+            {
+                "status": "succeeded",
+                "message": "Completed",
+                "scenario_id": scenario_id,
+                "parameters": parameters,
+                "result": result,
+            },
+        )
+    except asyncio.CancelledError:  # pragma: no cover - cooperative cancellation
+        _persist_and_publish(
+            run_id,
+            {
+                "status": "cancelled",
+                "message": "Execution cancelled",
+                "scenario_id": scenario_id,
+                "parameters": parameters,
+            },
+        )
+        raise
     except Exception as exc:  # pragma: no cover - actual execution path
-        payload = {
-            "status": "failed",
-            "message": str(exc),
-            "scenario_id": scenario_id,
-            "parameters": parameters,
-        }
-        _STORE.update(run_id, payload)
-        await _EMITTER.emit("run.failed", {"run_id": run_id, **payload})
-
-
-def _dispatch(run_id: str, scenario_id: str, parameters: Dict[str, Any]) -> None:
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(_execute(run_id, scenario_id, parameters))
-    except RuntimeError:
-        asyncio.run(_execute(run_id, scenario_id, parameters))
+        _persist_and_publish(
+            run_id,
+            {
+                "status": "failed",
+                "message": str(exc),
+                "scenario_id": scenario_id,
+                "parameters": parameters,
+            },
+        )
 
 
 def schedule_execution(
@@ -68,25 +99,50 @@ def schedule_execution(
     background_tasks: Optional[BackgroundTasks] = None,
 ) -> ScenarioExecutionResponse:
     run_id = str(uuid.uuid4())
-    run_payload = {
-        "status": "running",
-        "message": "Scheduled",
-        "scenario_id": payload.scenario_id,
-        "parameters": payload.parameters,
-    }
-    _STORE.create(run_id, run_payload)
-    if background_tasks is not None:
-        background_tasks.add_task(_dispatch, run_id, payload.scenario_id, payload.parameters)
-    else:
-        asyncio.create_task(_execute(run_id, payload.scenario_id, payload.parameters))
+    _persist_and_publish(
+        run_id,
+        {
+            "status": "queued",
+            "message": "Queued",
+            "scenario_id": payload.scenario_id,
+            "parameters": payload.parameters,
+        },
+    )
+    asyncio.create_task(_execute(run_id, payload.scenario_id, payload.parameters))
     return ScenarioExecutionResponse(
         run_id=run_id,
-        status="running",
-        message="Scenario execution scheduled",
+        status="queued",
+        message="Scenario execution queued",
         scenario_id=payload.scenario_id,
         parameters=payload.parameters,
     )
 
 
+def subscribe_run(run_id: str) -> AsyncGenerator[Dict[str, Any], None]:
+    """Return an async generator streaming run state transitions."""
+
+    if run_id not in _RUN_STORE:
+        raise RunNotFoundError(run_id)
+
+    queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
+    queue.put_nowait(_RUN_STORE[run_id].copy())
+    _RUN_SUBSCRIBERS[run_id].add(queue)
+
+    async def _generator() -> AsyncGenerator[Dict[str, Any], None]:
+        try:
+            while True:
+                event = await queue.get()
+                yield event
+                if event.get("status") in {"succeeded", "failed", "cancelled"}:
+                    break
+        finally:
+            _RUN_SUBSCRIBERS[run_id].discard(queue)
+            if not _RUN_SUBSCRIBERS[run_id]:
+                _RUN_SUBSCRIBERS.pop(run_id, None)
+
+    return _generator()
+
+
 def get_run(run_id: str) -> Dict[str, Any] | None:
-    return _STORE.get(run_id)
+    state = _RUN_STORE.get(run_id)
+    return state.copy() if state else None
