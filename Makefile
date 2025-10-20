@@ -1,4 +1,4 @@
-.PHONY: bootstrap up down seed train predict test fmt lint build release
+.PHONY: bootstrap up down seed train predict test fmt lint build release orchestrator api
 
 bootstrap:
 	pipx install pre-commit || true
@@ -8,7 +8,13 @@ bootstrap:
 	cp -n services/api/.env.example services/api/.env || true
 
 up:
-	docker compose up -d --build
+        docker compose up -d --build
+
+orchestrator:
+        docker compose up orchestrator -d --build
+
+api:
+        docker compose up api -d --build
 
 down:
 	docker compose down -v

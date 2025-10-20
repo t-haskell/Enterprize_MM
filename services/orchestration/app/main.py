@@ -1,7 +1,12 @@
 """FastAPI application for the orchestration service."""
 from __future__ import annotations
 
+import json
+from typing import AsyncGenerator
+
 from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from sse_starlette.sse import EventSourceResponse
 
 from .config import get_settings
 from .llm import PromptEngine
@@ -12,11 +17,20 @@ from .models import (
     ScenarioSuggestionResponse,
 )
 from .ranking import rank_scenarios
-from .runner import get_run, schedule_execution
+from .runner import RunNotFoundError, get_run, schedule_execution, subscribe_run
 
-app = FastAPI(title="Market Magic Orchestrator", version="0.1.0")
 settings = get_settings()
+app = FastAPI(title="Market Magic Orchestrator", version="0.2.0")
 prompt_engine = PromptEngine()
+
+allow_origins = ["*"] if settings.cors_allow_origins == ("*",) else list(settings.cors_allow_origins)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allow_origins,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/healthz", tags=["system"])
@@ -43,3 +57,17 @@ async def get_run_status(run_id: str):
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     return run
+
+
+@app.get("/runs/{run_id}/stream", tags=["analysis"])
+async def stream_run(run_id: str) -> EventSourceResponse:
+    try:
+        generator: AsyncGenerator[dict, None] = subscribe_run(run_id)
+    except RunNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found") from exc
+
+    async def event_generator() -> AsyncGenerator[dict[str, str], None]:
+        async for event in generator:
+            yield {"event": "message", "data": json.dumps(event)}
+
+    return EventSourceResponse(event_generator())
